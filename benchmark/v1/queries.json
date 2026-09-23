@@ -1,0 +1,27 @@
+{
+  "version": "v1",
+  "gold_level": "source",
+  "corpus": ["aurora_protocol.md", "nimbus_lab.txt", "willow_garden.md"],
+  "queries": [
+    {
+      "id": "q1",
+      "query": "What is the Zephyr handshake in the Aurora Protocol?",
+      "gold_sources": ["aurora_protocol.md"]
+    },
+    {
+      "id": "q2",
+      "query": "Which compound did Nimbus Laboratory isolate?",
+      "gold_sources": ["nimbus_lab.txt"]
+    },
+    {
+      "id": "q3",
+      "query": "How does Willow Garden schedule lunar-cycle irrigation?",
+      "gold_sources": ["willow_garden.md"]
+    },
+    {
+      "id": "q4",
+      "query": "AURORA-SESSION key after Zephyr commit",
+      "gold_sources": ["aurora_protocol.md"]
+    }
+  ]
+}
