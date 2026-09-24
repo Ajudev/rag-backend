@@ -57,3 +57,27 @@ class RerankerUnavailableError(AppError):
     """Cross-encoder reranker is required but was not loaded."""
 
     status_code = 503
+
+
+class GenerationUnavailableError(AppError):
+    """Grounded generation client is required but was not configured."""
+
+    status_code = 503
+
+
+class GenerationError(AppError):
+    """LLM generation failed or returned unusable structured output."""
+
+    status_code = 502
+
+
+class GenerationTimeoutError(AppError):
+    """LLM generation timed out."""
+
+    status_code = 504
+
+
+class GenerationRateLimitError(AppError):
+    """LLM provider rate-limited the request after retries."""
+
+    status_code = 503

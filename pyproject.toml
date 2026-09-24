@@ -1,6 +1,6 @@
 [project]
 name = "backend"
-version = "0.3.0"
+version = "0.4.0"
 description = "Hybrid search RAG backend"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -8,6 +8,7 @@ dependencies = [
     "fastapi>=0.141.1",
     "fonttools>=4.65.0",
     "httpx>=0.28.0",
+    "openai>=3.3.0",
     "pydantic-settings>=2.11.0",
     "pypdf>=6.19.0",
     "python-multipart>=0.0.20",
@@ -53,9 +54,12 @@ indent-style = "space"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 markers = [
     "unit: isolated unit tests",
     "integration: API and store integration tests",
+    "live: live LLM tests (requires RUN_LIVE_LLM=1 and OPENAI_API_KEY)",
 ]
 filterwarnings = [
     "ignore::DeprecationWarning",

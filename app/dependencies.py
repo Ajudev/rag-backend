@@ -7,6 +7,7 @@ from fastapi import Depends, Request
 from app.core.config import Settings
 from app.services.bm25_index import BM25Index
 from app.services.embedder import Embedder
+from app.services.generation import GenerationClient
 from app.services.ingest import IngestService
 from app.services.qdrant_store import QdrantStore
 from app.services.reranker import Reranker
@@ -36,6 +37,11 @@ def get_embedder(request: Request) -> Embedder:
 def get_reranker(request: Request) -> Reranker | None:
     """Return the reranker from lifespan state, if loaded."""
     return getattr(request.app.state, "reranker", None)
+
+
+def get_generation_client(request: Request) -> GenerationClient | None:
+    """Return the generation client from lifespan state, if configured."""
+    return getattr(request.app.state, "generation_client", None)
 
 
 def get_ingest_service(

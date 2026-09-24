@@ -15,6 +15,7 @@ from qdrant_client import QdrantClient
 from app.core.config import Settings
 from app.main import create_app
 from app.services.embedder import FakeEmbedder
+from app.services.generation import FakeGenerationClient
 from app.services.reranker import FakeReranker
 
 LONG_TEXT = (
@@ -105,17 +106,24 @@ def reranker() -> FakeReranker:
 
 
 @pytest.fixture
+def generation_client() -> FakeGenerationClient:
+    return FakeGenerationClient()
+
+
+@pytest.fixture
 def app(
     settings: Settings,
     embedder: FakeEmbedder,
     qdrant_client: QdrantClient,
     reranker: FakeReranker,
+    generation_client: FakeGenerationClient,
 ):
     return create_app(
         settings=settings,
         embedder=embedder,
         qdrant_client=qdrant_client,
         reranker=reranker,
+        generation_client=generation_client,
     )
 
 

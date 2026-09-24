@@ -141,3 +141,141 @@ class HealthResponse(BaseModel):
 
     status: Literal["ok", "degraded"]
     qdrant: bool
+
+
+LlmGroundedStatus = Literal["answered", "partially_answered", "insufficient_evidence", "conflicting_evidence"]
+AnswerStatus = Literal[
+    "answered",
+    "partially_answered",
+    "insufficient_evidence",
+    "conflicting_evidence",
+    "citation_invalid",
+]
+
+
+class AnswerRequest(BaseModel):
+    """Grounded-answer request: retrieve passages then generate cited claims."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    question: str = Field(min_length=1)
+    mode: SearchMode = Field(
+        default="hybrid_rerank",
+        validation_alias=AliasChoices("mode", "search_mode"),
+    )
+    top_k: int = 5
+    filters: SearchFilters | None = None
+    dense_candidate_count: int | None = Field(default=None, ge=1, le=100)
+    bm25_candidate_count: int | None = Field(default=None, ge=1, le=100)
+    rerank_candidate_count: int | None = Field(default=None, ge=1, le=100)
+    rrf_k: int | None = Field(default=None, ge=1)
+    dense_weight: float | None = Field(default=None, ge=0)
+    bm25_weight: float | None = Field(default=None, ge=0)
+
+    @field_validator("question")
+    @classmethod
+    def strip_question(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("question must not be empty")
+        return stripped
+
+    @field_validator("top_k")
+    @classmethod
+    def clamp_top_k(cls, value: int) -> int:
+        if value < 1:
+            raise ValueError("top_k must be a positive integer")
+        return min(value, 100)
+
+    @model_validator(mode="after")
+    def validate_fusion_and_rerank(self) -> Self:
+        if self.dense_weight == 0 and self.bm25_weight == 0:
+            raise ValueError("dense_weight and bm25_weight cannot both be 0")
+        if (
+            self.mode == "hybrid_rerank"
+            and self.rerank_candidate_count is not None
+            and self.rerank_candidate_count < self.top_k
+        ):
+            raise ValueError("rerank_candidate_count must be greater than or equal to top_k")
+        return self
+
+
+class CitationRef(BaseModel):
+    """A citation pointing at a supplied context-pack chunk."""
+
+    chunk_id: str = Field(min_length=1)
+    evidence_quote: str = Field(min_length=1)
+
+
+class AnswerClaim(BaseModel):
+    """One atomic claim shown in the grounded answer."""
+
+    claim_id: str = Field(min_length=1)
+    text: str = Field(min_length=1)
+    citations: list[CitationRef]
+
+
+class GroundedLlmOutput(BaseModel):
+    """Structured generation schema parsed from the LLM (internal)."""
+
+    claims: list[AnswerClaim] = Field(default_factory=list)
+    status: LlmGroundedStatus
+
+
+class AnswerSource(BaseModel):
+    """Cited passage metadata. Semantic support is not verified."""
+
+    chunk_id: str
+    document_id: str
+    document_title: str
+    page_number: int
+    section: str | None = None
+    char_start: int
+    char_end: int
+    passage_text: str
+
+
+class TokenUsage(BaseModel):
+    """Token counts reported by the generation API."""
+
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+
+
+class CitationValidationMeta(BaseModel):
+    """Deterministic reference-validation outcome, not semantic entailment."""
+
+    ok: bool
+    errors: list[str] = Field(default_factory=list)
+    repair_attempted: bool = False
+
+
+class AnswerMetadata(BaseModel):
+    """Observability for one grounded-answer request."""
+
+    request_id: str
+    search_mode: SearchMode
+    prompt_version: str
+    llm_provider: str
+    llm_model: str
+    retrieved_chunk_ids: list[str]
+    context_chunk_ids: list[str]
+    retrieval_latency_ms: float
+    generation_latency_ms: float
+    validation_latency_ms: float
+    total_latency_ms: float
+    token_usage: TokenUsage
+    estimated_cost_usd: float | None = None
+    citation_validation: CitationValidationMeta
+    dropped_chunk_ids: list[str] = Field(default_factory=list)
+
+
+class AnswerResponse(BaseModel):
+    """Public grounded-answer payload. System prompts are never included."""
+
+    answer: str
+    status: AnswerStatus
+    claims: list[AnswerClaim] = Field(default_factory=list)
+    sources: list[AnswerSource] = Field(default_factory=list)
+    metadata: AnswerMetadata
