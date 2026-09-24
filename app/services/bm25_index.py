@@ -9,9 +9,9 @@ from typing import Any
 
 from rank_bm25 import BM25Okapi
 
+from app.helpers import tokenize
 from app.schemas import SearchFilters
 from app.services.chunker import PreparedChunk
-from app.helpers import tokenize
 
 
 class BM25Index:
@@ -26,6 +26,11 @@ class BM25Index:
     def is_empty(self) -> bool:
         """Return True when no records are loaded."""
         return not self._records
+
+    def indexed_sources(self) -> set[str]:
+        """Return distinct source filenames currently in the index."""
+        with self._lock:
+            return {str(record.get("source", "")) for record in self._records if record.get("source")}
 
     def load(self) -> None:
         """Load persisted records from disk if the file exists."""

@@ -45,3 +45,15 @@ class QdrantUnavailableError(AppError):
     """Qdrant could not be reached."""
 
     status_code = 503
+
+
+class InvalidSearchParamsError(AppError):
+    """Search parameters failed domain validation."""
+
+    status_code = 422
+
+
+class RerankerUnavailableError(AppError):
+    """Cross-encoder reranker is required but was not loaded."""
+
+    status_code = 503

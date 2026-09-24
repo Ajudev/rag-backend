@@ -15,6 +15,7 @@ from qdrant_client import QdrantClient
 from app.core.config import Settings
 from app.main import create_app
 from app.services.embedder import FakeEmbedder
+from app.services.reranker import FakeReranker
 
 LONG_TEXT = (
     "The Zephyr handshake is a three-step nonce exchange used by the Aurora Protocol "
@@ -73,6 +74,7 @@ def txt_bytes() -> bytes:
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
     return Settings(
+        _env_file=None,
         qdrant_url=":memory:",
         qdrant_collection="test_chunks",
         embedding_model="fake",
@@ -83,6 +85,7 @@ def settings(tmp_path: Path) -> Settings:
         max_upload_bytes=4096,
         bm25_index_path=tmp_path / "bm25.json",
         upsert_batch_size=8,
+        reranker_model="fake-reranker",
     )
 
 
@@ -97,8 +100,23 @@ def embedder() -> FakeEmbedder:
 
 
 @pytest.fixture
-def app(settings: Settings, embedder: FakeEmbedder, qdrant_client: QdrantClient):
-    return create_app(settings=settings, embedder=embedder, qdrant_client=qdrant_client)
+def reranker() -> FakeReranker:
+    return FakeReranker()
+
+
+@pytest.fixture
+def app(
+    settings: Settings,
+    embedder: FakeEmbedder,
+    qdrant_client: QdrantClient,
+    reranker: FakeReranker,
+):
+    return create_app(
+        settings=settings,
+        embedder=embedder,
+        qdrant_client=qdrant_client,
+        reranker=reranker,
+    )
 
 
 @pytest.fixture

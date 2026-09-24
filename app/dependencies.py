@@ -9,6 +9,7 @@ from app.services.bm25_index import BM25Index
 from app.services.embedder import Embedder
 from app.services.ingest import IngestService
 from app.services.qdrant_store import QdrantStore
+from app.services.reranker import Reranker
 from app.services.search import SearchService
 
 
@@ -32,6 +33,11 @@ def get_embedder(request: Request) -> Embedder:
     return request.app.state.embedder
 
 
+def get_reranker(request: Request) -> Reranker | None:
+    """Return the reranker from lifespan state, if loaded."""
+    return getattr(request.app.state, "reranker", None)
+
+
 def get_ingest_service(
     settings: Annotated[Settings, Depends(get_settings_dep)],
     qdrant: Annotated[QdrantStore, Depends(get_qdrant_store)],
@@ -47,9 +53,16 @@ def get_search_service(
     qdrant: Annotated[QdrantStore, Depends(get_qdrant_store)],
     bm25: Annotated[BM25Index, Depends(get_bm25_index)],
     embedder: Annotated[Embedder, Depends(get_embedder)],
+    reranker: Annotated[Reranker | None, Depends(get_reranker)],
 ) -> SearchService:
     """Build a search service for the current request."""
-    return SearchService(settings=settings, qdrant=qdrant, bm25=bm25, embedder=embedder)
+    return SearchService(
+        settings=settings,
+        qdrant=qdrant,
+        bm25=bm25,
+        embedder=embedder,
+        reranker=reranker,
+    )
 
 
 SettingsDep = Annotated[Settings, Depends(get_settings_dep)]

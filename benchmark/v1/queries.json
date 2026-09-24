@@ -6,22 +6,79 @@
     {
       "id": "q1",
       "query": "What is the Zephyr handshake in the Aurora Protocol?",
-      "gold_sources": ["aurora_protocol.md"]
+      "gold_sources": ["aurora_protocol.md"],
+      "category": "semantic",
+      "split": "test"
     },
     {
       "id": "q2",
       "query": "Which compound did Nimbus Laboratory isolate?",
-      "gold_sources": ["nimbus_lab.txt"]
+      "gold_sources": ["nimbus_lab.txt"],
+      "category": "semantic",
+      "split": "test"
     },
     {
       "id": "q3",
       "query": "How does Willow Garden schedule lunar-cycle irrigation?",
-      "gold_sources": ["willow_garden.md"]
+      "gold_sources": ["willow_garden.md"],
+      "category": "keyword",
+      "split": "test"
     },
     {
       "id": "q4",
       "query": "AURORA-SESSION key after Zephyr commit",
-      "gold_sources": ["aurora_protocol.md"]
+      "gold_sources": ["aurora_protocol.md"],
+      "category": "identifier",
+      "split": "test"
+    },
+    {
+      "id": "v1",
+      "query": "XJ-19",
+      "gold_sources": ["nimbus_lab.txt"],
+      "category": "keyword",
+      "split": "validation"
+    },
+    {
+      "id": "v2",
+      "query": "Zephyr handshake",
+      "gold_sources": ["aurora_protocol.md"],
+      "category": "keyword",
+      "split": "validation"
+    },
+    {
+      "id": "v3",
+      "query": "lunar-cycle irrigation",
+      "gold_sources": ["willow_garden.md"],
+      "category": "keyword",
+      "split": "validation"
+    },
+    {
+      "id": "v4",
+      "query": "teal fluorescent compound from the night-shift lab",
+      "gold_sources": ["nimbus_lab.txt"],
+      "category": "semantic",
+      "split": "validation"
+    },
+    {
+      "id": "v5",
+      "query": "AURORA-SESSION",
+      "gold_sources": ["aurora_protocol.md"],
+      "category": "identifier",
+      "split": "validation"
+    },
+    {
+      "id": "v6",
+      "query": "compound XJ-19",
+      "gold_sources": ["nimbus_lab.txt"],
+      "category": "identifier",
+      "split": "validation"
+    },
+    {
+      "id": "v7",
+      "query": "Where are night-shift incidents and Zephyr handshake failures logged in the mission diary?",
+      "gold_sources": ["aurora_protocol.md", "nimbus_lab.txt"],
+      "category": "multi_document",
+      "split": "validation"
     }
   ]
 }

@@ -14,6 +14,7 @@ data/
 models/
 benchmark/v1/results.json
 benchmark/v1/.bm25.json
+benchmark/v1/.bm25.json.tmp
 *.log
 .DS_Store
 uv.lock.bak

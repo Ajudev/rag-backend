@@ -2,4 +2,4 @@ Nimbus Laboratory notes
 
 Nimbus Laboratory reported the isolation of compound XJ-19 during a cold-room synthesis on the night shift. XJ-19 fluoresces teal under 365 nanometer light and remains stable in phosphate buffer for forty-eight hours.
 
-The lab notebook warns that XJ-19 must never be stored beside acetone. Researchers record optical density at 280 nanometers after each freeze-thaw cycle. These sentences provide distinctive lexical anchors for BM25 and enough words for the default chunker.
+The lab notebook warns that XJ-19 must never be stored beside acetone. Researchers record optical density at 280 nanometers after each freeze-thaw cycle. Night-shift incidents are logged in the same mission diary used by Aurora Protocol operators. These sentences provide distinctive lexical anchors for BM25 and enough words for the default chunker.

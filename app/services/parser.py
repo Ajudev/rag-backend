@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.core.exceptions import DocumentParseError, EmptyDocumentError, UnsupportedFileTypeError
-from app.schemas import ContentTypeName
 from app.helpers import extract_pdf_bytes
+from app.schemas import ContentTypeName
 
 PDF_MAGIC = b"%PDF"
 ALLOWED_EXTENSIONS: dict[str, ContentTypeName] = {
@@ -62,9 +62,7 @@ def detect_content_type(filename: str, declared_content_type: str | None, data: 
 
     ext = _extension(filename)
     if ext not in ALLOWED_EXTENSIONS:
-        raise UnsupportedFileTypeError(
-            "Unsupported file type. Allowed extensions: .pdf, .md, .markdown, .txt"
-        )
+        raise UnsupportedFileTypeError("Unsupported file type. Allowed extensions: .pdf, .md, .markdown, .txt")
     from_ext = ALLOWED_EXTENSIONS[ext]
 
     declared = (declared_content_type or "").split(";")[0].strip().lower()

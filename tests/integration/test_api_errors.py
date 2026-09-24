@@ -45,7 +45,7 @@ def test_empty_query_422(client) -> None:
 
 
 def test_invalid_mode_422(client) -> None:
-    response = client.post("/search", json={"query": "hello", "mode": "hybrid"})
+    response = client.post("/search", json={"query": "hello", "mode": "lexical"})
     assert response.status_code == 422
 
 

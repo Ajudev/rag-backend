@@ -16,6 +16,7 @@ from app.core.exceptions import AppError
 from app.services.bm25_index import BM25Index
 from app.services.embedder import Embedder, SentenceTransformerEmbedder
 from app.services.qdrant_store import QdrantStore, build_qdrant_client
+from app.services.reranker import CrossEncoderReranker, Reranker
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,13 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.embedder = SentenceTransformerEmbedder(
             settings.embedding_model,
             dim=settings.embedding_dim,
+        )
+
+    if getattr(app.state, "reranker", None) is None:
+        logger.info("Loading reranker %s device=%s", settings.reranker_model, settings.reranker_device)
+        app.state.reranker = CrossEncoderReranker(
+            settings.reranker_model,
+            device=settings.reranker_device,
         )
 
     store = QdrantStore(app.state.qdrant_client, settings)
@@ -56,6 +64,7 @@ def create_app(
     settings: Settings | None = None,
     embedder: Embedder | None = None,
     qdrant_client: QdrantClient | None = None,
+    reranker: Reranker | None = None,
 ) -> FastAPI:
     """Build the FastAPI application.
 
@@ -63,6 +72,7 @@ def create_app(
         settings: Optional settings override (tests).
         embedder: Optional embedder override to avoid model downloads.
         qdrant_client: Optional client (for example ``QdrantClient(":memory:")``).
+        reranker: Optional reranker override to avoid MiniLM downloads.
 
     Returns:
         Configured FastAPI app exposing ingest, search, and health routes.
@@ -70,8 +80,8 @@ def create_app(
     resolved = settings or get_settings()
     app = FastAPI(
         title="Hybrid Search RAG",
-        description="Phase 2: document ingestion and baseline dense/BM25 search.",
-        version="0.2.0",
+        description=("Document ingestion plus dense, BM25, hybrid RRF, and cross-encoder rerank search."),
+        version="0.3.0",
         lifespan=_lifespan,
     )
     app.state.settings = resolved
@@ -79,6 +89,8 @@ def create_app(
         app.state.embedder = embedder
     if qdrant_client is not None:
         app.state.qdrant_client = qdrant_client
+    if reranker is not None:
+        app.state.reranker = reranker
 
     app.include_router(health_router)
     app.include_router(documents_router)

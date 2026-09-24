@@ -6,9 +6,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.core.exceptions import EmptyDocumentError, InvalidChunkParamsError
+from app.helpers import chunk_text
 from app.schemas import ContentTypeName
 from app.services.ids import chunk_id_for
-from app.helpers import chunk_text
 
 
 @dataclass(frozen=True, slots=True)

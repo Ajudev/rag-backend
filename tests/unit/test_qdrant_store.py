@@ -13,10 +13,13 @@ pytestmark = pytest.mark.unit
 
 def test_qdrant_upsert_and_search_with_fake_vectors(tmp_path) -> None:
     settings = Settings(
+        _env_file=None,
         qdrant_url=":memory:",
         qdrant_collection="unit_qdrant",
+        embedding_model="fake",
         bm25_index_path=tmp_path / "bm25.json",
         min_chunk_words=1,
+        reranker_model="fake-reranker",
     )
     store = QdrantStore(QdrantClient(location=":memory:"), settings)
     store.ensure_collection()

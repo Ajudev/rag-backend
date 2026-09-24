@@ -47,9 +47,7 @@ def test_bm25_filters_and_ranking(tmp_path) -> None:
 
 def test_bm25_update_source_renames_filters(tmp_path) -> None:
     index = BM25Index(tmp_path / "bm25.json")
-    index.upsert_chunks(
-        [_chunk("1" * 32, "nimbus_lab.txt", "compound XJ-19 fluoresces teal under ultraviolet light")]
-    )
+    index.upsert_chunks([_chunk("1" * 32, "nimbus_lab.txt", "compound XJ-19 fluoresces teal under ultraviolet light")])
     index.update_source("doc1", "renamed_nimbus.txt")
     old = index.search("XJ-19", top_k=5, filters=SearchFilters(source="nimbus_lab.txt"))
     new = index.search("XJ-19", top_k=5, filters=SearchFilters(source="renamed_nimbus.txt"))

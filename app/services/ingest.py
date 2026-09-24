@@ -76,9 +76,7 @@ class IngestService:
             EmptyDocumentError: Empty or non-indexable content.
         """
         if len(data) > self.settings.max_upload_bytes:
-            raise PayloadTooLargeError(
-                f"File exceeds max upload size of {self.settings.max_upload_bytes} bytes"
-            )
+            raise PayloadTooLargeError(f"File exceeds max upload size of {self.settings.max_upload_bytes} bytes")
         if not data:
             raise EmptyDocumentError("Uploaded file is empty")
 

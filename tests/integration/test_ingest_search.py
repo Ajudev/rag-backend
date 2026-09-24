@@ -36,9 +36,7 @@ def test_ingest_and_both_search_modes_share_ids(client, markdown_bytes: bytes) -
         assert hit["metadata"]["char_end"] >= hit["metadata"]["char_start"]
 
 
-def test_idempotent_same_bytes_and_replace_same_filename(
-    client, markdown_bytes: bytes, txt_bytes: bytes
-) -> None:
+def test_idempotent_same_bytes_and_replace_same_filename(client, markdown_bytes: bytes, txt_bytes: bytes) -> None:
     first = _upload(client, "same.md", markdown_bytes, "text/markdown")
     replay = _upload(client, "same.md", markdown_bytes, "text/markdown")
     assert first.status_code == 201
