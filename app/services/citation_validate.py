@@ -3,7 +3,7 @@
 This module checks that cited chunk IDs were actually supplied in the context
 pack and that evidence quotes occur in those passages after conservative
 normalization. It does **not** prove that a passage semantically supports a
-claim (no NLI / entailment). Semantic citation verification is future work.
+claim. Semantic checks live in ``CitationVerificationService``.
 """
 
 from __future__ import annotations
@@ -32,6 +32,56 @@ def quote_in_passage(quote: str, passage: str) -> bool:
     if not needle:
         return False
     return needle in haystack
+
+
+def locate_quote_offsets(quote: str, passage: str) -> tuple[int, int] | None:
+    """Map a normalized quote to original ``[start, end)`` offsets, or None.
+
+    Offsets are never invented: if the span cannot be aligned to the stored
+    passage, this returns None.
+    """
+    needle = normalize_evidence_text(quote)
+    if not needle:
+        return None
+    orig_exact = passage.find(quote)
+    if orig_exact >= 0:
+        return orig_exact, orig_exact + len(quote)
+    folded_passage = passage.casefold()
+    folded_quote = quote.casefold()
+    folded_at = folded_passage.find(folded_quote)
+    if folded_at >= 0:
+        return folded_at, folded_at + len(quote)
+
+    out_chars: list[str] = []
+    out_orig: list[int] = []
+    prev_space = False
+    for orig_i, char in enumerate(passage):
+        folded = unicodedata.normalize("NFKC", char).casefold()
+        if not folded:
+            continue
+        for folded_char in folded:
+            is_space = folded_char.isspace()
+            if is_space:
+                if prev_space or not out_chars:
+                    continue
+                out_chars.append(" ")
+                out_orig.append(orig_i)
+                prev_space = True
+                continue
+            out_chars.append(folded_char)
+            out_orig.append(orig_i)
+            prev_space = False
+    while out_chars and out_chars[-1] == " ":
+        out_chars.pop()
+        out_orig.pop()
+    haystack = "".join(out_chars)
+    idx = haystack.find(needle)
+    if idx < 0 or not out_orig:
+        return None
+    end_idx = idx + len(needle) - 1
+    if end_idx >= len(out_orig):
+        return None
+    return out_orig[idx], out_orig[end_idx] + 1
 
 
 @dataclass

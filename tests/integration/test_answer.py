@@ -324,3 +324,52 @@ def test_live_openai_answer_skipped_in_ci(settings, embedder, reranker, markdown
             "citation_invalid",
         }
         assert body["metadata"]["llm_provider"] == "openai"
+
+
+def test_answer_verify_false_keeps_legacy_status(client, app, markdown_bytes: bytes) -> None:
+    _upload(client, "aurora.md", markdown_bytes, "text/markdown")
+    search = client.post("/search", json={"query": "Zephyr", "mode": "bm25", "top_k": 5})
+    payload = _valid_from_search(search.json())
+    app.state.generation_client.enqueue(payload)
+    response = client.post(
+        "/answer",
+        json={"question": "What is Zephyr?", "mode": "bm25", "verify": False},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "answered"
+    assert body["verification"] is None
+    assert app.state.generation_client.call_count == 1
+
+
+def test_answer_verify_true_includes_report(client, app, markdown_bytes: bytes) -> None:
+    from app.schemas import SemanticCitationJudgement, SemanticClaimJudgement
+
+    _upload(client, "aurora.md", markdown_bytes, "text/markdown")
+    search = client.post("/search", json={"query": "Zephyr", "mode": "bm25", "top_k": 5})
+    payload = _valid_from_search(search.json())
+    chunk_id = payload.claims[0].citations[0].chunk_id
+    quote = payload.claims[0].citations[0].evidence_quote
+    app.state.generation_client.enqueue(payload)
+    app.state.generation_client.enqueue(
+        SemanticClaimJudgement(
+            status="SUPPORTED",
+            citations=[
+                SemanticCitationJudgement(
+                    chunk_id=chunk_id,
+                    contribution="supports",
+                    evidence_quote=quote,
+                )
+            ],
+        )
+    )
+    response = client.post(
+        "/answer",
+        json={"question": "What is Zephyr?", "mode": "bm25", "verify": True},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] == "verified"
+    assert body["verification"] is not None
+    assert body["verification"]["prompt_version"] == "verify_v1"
+    assert body["metadata"]["generation_status"] == "answered"

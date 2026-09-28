@@ -1,6 +1,6 @@
 # Hybrid Search RAG
 
-Document ingestion, **dense / BM25 / hybrid RRF / cross-encoder rerank** search, and **grounded answer generation** with deterministic citation *reference* validation. **Semantic citation verification is not implemented** (future work: NLI / entailment scoring, citation correctness classification).
+Document ingestion, **dense / BM25 / hybrid RRF / cross-encoder rerank** search, **grounded answer generation**, and **citation verification**. Verification uses a separate `CitationVerificationService` / `semantic_verify` path. LLM verification is **fallible**: a `SUPPORTED` label is a structured model judgement, not a calibrated proof. A cited `chunk_id` that exists in the index is **not** semantic support.
 
 ## Architecture
 
@@ -10,6 +10,7 @@ Upload → parse (pypdf / UTF-8) → word chunk (helpers.chunk_text)
       → Qdrant cosine collection (384-d) + JSON-persisted BM25
 Search → one of four strategies (same metadata filters on both indexes)
 Answer → search → context pack → structured LLM generate → citation reference validation
+         → (optional) atomic claims → semantic_verify → at most one retrieval+revision
 ```
 
 ```mermaid
@@ -32,14 +33,15 @@ flowchart TD
     OUT --> PACK[Context pack]
     PACK --> LLM[Structured generate]
     LLM --> VAL[Citation reference validation]
-    VAL --> ANS[Grounded answer]
+    VAL --> VER[CitationVerificationService]
+    VER --> ANS[Answer / verified report]
 ```
 
 | Path | Role |
 |------|------|
 | `app/main.py` | FastAPI factory and lifespan (Qdrant, embedder, reranker, BM25, optional OpenAI client) |
-| `app/api/routes/` | `POST /documents`, `POST /search`, `POST /answer`, `GET /health` |
-| `app/services/` | parse, chunk, embed, ingest, Qdrant, BM25, RRF fusion, rerank, search, context pack, generation, citation reference validation |
+| `app/api/routes/` | `POST /documents`, `POST /search`, `POST /answer`, `POST /verify`, `GET /health` |
+| `app/services/` | parse, chunk, embed, ingest, Qdrant, BM25, RRF fusion, rerank, search, context pack, generation, citation reference validation, atomic claims, citation verification |
 | `app/helpers.py` | `tokenize`, PDF extract, `chunk_text` / `chunk_text_para` |
 | `docs/` | Small sample corpus for the v1 benchmark |
 | `main.py` | Re-exports `app` for `uvicorn main:app` |
@@ -131,6 +133,9 @@ See `.env.example` for required local-dev values. Copy it to `.env` at the backe
 | `ANSWER_LOG_PROMPTS` | `false` | If true, log prompt message counts (never API keys) |
 | `OPENAI_INPUT_USD_PER_MILLION` | unset | Optional cost estimate |
 | `OPENAI_OUTPUT_USD_PER_MILLION` | unset | Optional cost estimate |
+| `CITATION_VERIFY_ENABLED` | `true` | Default `POST /answer` verification (tests force `false`) |
+| `CITATION_VERIFY_MODEL` | `OPENAI_MODEL` | Optional verifier model name |
+| `VERIFY_PROMPT_VERSION` | `verify_v1` | Independent of `grounded_v1` |
 
 ## API examples
 
@@ -220,11 +225,11 @@ Response shape (nulls when a stage did not run):
 
 ## Grounded answers
 
-`POST /answer` retrieves passages with the existing search stack, packs them as **untrusted data**, asks the LLM for structured claims, then runs **deterministic citation reference validation**.
+`POST /answer` retrieves passages with the existing search stack, packs them as **untrusted data**, asks the LLM for structured claims, then runs **deterministic citation reference validation**. Set `"verify": true` (or omit it when `CITATION_VERIFY_ENABLED=true`) to run **citation verification**. Tests disable verification by default so existing generation queues stay valid. Clients may send `"verify": false`.
 
 Displayed `answer` is built from claim texts (joined). System prompts and model reasoning are never returned.
 
-| Status | Meaning |
+| Status (verify=false) | Meaning |
 |--------|---------|
 | `answered` | Claims with valid references |
 | `partially_answered` | LLM reported a partial answer; references still must validate |
@@ -232,18 +237,54 @@ Displayed `answer` is built from claim texts (joined). System prompts and model 
 | `conflicting_evidence` | Sources disagree; both sides should be cited |
 | `citation_invalid` | Reference validation failed after at most one repair generation; unverified claims are not returned |
 
-**Reference validation vs semantic verification:** validation checks (1) `chunk_id` values were in the context pack for this request (not merely present in the index), (2) every factual claim has ≥1 citation, (3) `evidence_quote` occurs in that passage after Unicode NFKC, casefold, and whitespace collapse. It does **not** prove the passage supports the claim. Invented IDs are never remapped to nearby valid IDs.
+**Reference validation vs semantic verification:** validation checks (1) `chunk_id` values were in the context pack for this request (not merely present in the index), (2) every factual claim has ≥1 citation, (3) `evidence_quote` occurs in that passage after Unicode NFKC, casefold, and whitespace collapse. Invented IDs are never remapped to nearby valid IDs. This corpus has no `document_version` field; `document_version` is set to `document_id` (content hash).
 
-Empty retrieval (for example a source filter that matches nothing) returns `insufficient_evidence` **without** calling the LLM. Low dense scores are not treated as calibrated probabilities and are **not** auto-thresholded as insufficient.
+Empty retrieval (for example a source filter that matches nothing) returns `insufficient_evidence` **without** calling the LLM or the verifier. Low dense scores are not treated as calibrated probabilities and are **not** auto-thresholded as insufficient.
 
 Context pack: each passage includes `chunk_id`, `document_id`, source filename (title), `page_num`, `chunk_index`, and full text. If the pack exceeds `ANSWER_CONTEXT_MAX_CHARS`, **lowest-ranked whole passages** are dropped (never mid-truncated). Dropped IDs appear in `metadata.dropped_chunk_ids`.
 
-Default retrieval mode is `hybrid_rerank` with `top_k=5` (`mode` / `search_mode` alias, same four modes as search). `OPENAI_API_KEY` is optional at boot; without a generation client, `POST /answer` returns **503**. Prompt version is `grounded_v1`.
+Default retrieval mode is `hybrid_rerank` with `top_k=5` (`mode` / `search_mode` alias, same four modes as search). `OPENAI_API_KEY` is optional at boot; without a generation client, `POST /answer` returns **503**. Generation prompt version is `grounded_v1`. Verification prompt version is `verify_v1`.
 
 ```bash
 curl -s -X POST http://127.0.0.1:8000/answer \
   -H "Content-Type: application/json" \
-  -d '{"question":"What is the Zephyr handshake?","mode":"hybrid_rerank","top_k":5}'
+  -d '{"question":"What is the Zephyr handshake?","mode":"hybrid_rerank","top_k":5,"verify":false}'
+```
+
+## Citation verification
+
+`CitationVerificationService.semantic_verify` judges each **atomic claim** against **only** the cited indexed passages. Verdicts are fallible LLM judgements. `model_score`, if present, is **uncalibrated** and is not a probability.
+
+When `verify=true`, overall `status` is one of:
+
+| Status | Meaning |
+|--------|---------|
+| `verified` | Every displayed factual atomic claim is `SUPPORTED` |
+| `partially_verified` | At least one `SUPPORTED` and at least one `PARTIALLY_SUPPORTED` or `UNCERTAIN`; no displayed `CONTRADICTED` |
+| `conflicting_evidence` | Any displayed `CONTRADICTED` |
+| `insufficient_evidence` | Nothing verified remains / abstain |
+| `verification_failed` | Deterministic citations invalid after repair, or verifier LLM failure |
+
+Original generation status is stored in `metadata.generation_status`. `verification` is `null` when `verify=false`.
+
+Per-claim semantic statuses: `SUPPORTED` | `PARTIALLY_SUPPORTED` | `UNSUPPORTED` | `CONTRADICTED` | `UNCERTAIN`.
+
+Examples: claim founded 2015 vs evidence 2010 → `CONTRADICTED`; office opened 2015 ≠ founded → `UNSUPPORTED`; founded 2015 + HQ Dubai with only founding evidence → `PARTIALLY_SUPPORTED`. Joint evidence can support a multi-hop claim (2022 $4M + 2023 $5M → increase). An extra irrelevant citation must not be marked supporting just because another cite is. Invalid citations are never `SUPPORTED`.
+
+Evidence spans include `chunk_id`, `document_id`, `document_version` (`document_id`), quote, and char offsets **only when** the quote can be located in the stored passage; otherwise offsets are null (never invented).
+
+If any atomic claim is not `SUPPORTED`, the service runs **at most one** extra `hybrid_rerank` search, revises, and independently re-verifies. If claims still fail, unsupported/contradicted facts are stripped or qualified rather than published as verified. `RevisionAttempt` records the original answer, failures, extra retrieval IDs, revised claims, and final verdicts.
+
+`POST /verify` checks caller-supplied claims against **indexed** chunks in `allowed_chunk_ids`. Passage bodies in the client request are not trusted as evidence. Unknown `chunk_id` → **404**. Empty `allowed_chunk_ids` while claims cite IDs → **422**.
+
+```bash
+curl -s -X POST http://127.0.0.1:8000/answer \
+  -H "Content-Type: application/json" \
+  -d '{"question":"What is the Zephyr handshake?","mode":"hybrid_rerank","top_k":5,"verify":true}'
+
+curl -s -X POST http://127.0.0.1:8000/verify \
+  -H "Content-Type: application/json" \
+  -d '{"question":"What is Zephyr?","answer":"...","claims":[{"claim_id":"claim_1","text":"...","citations":[{"chunk_id":"...","evidence_quote":"..."}]}],"allowed_chunk_ids":["..."]}'
 ```
 
 Illustrative response shape (not a quality claim):
@@ -307,6 +348,22 @@ uv run python -m benchmark.v1.run
 
 The runner ingests the small files listed in `benchmark/v1/queries.json` (`corpus`), not large research PDFs that may also live in `docs/`.
 
+## Citation verification eval (`benchmark/citation_v1/`)
+
+Manually labeled JSON cases (validation vs held-out **test**). Gold is not labeled by the verifier LLM. The corpus is tiny; scores are diagnostic only.
+
+```bash
+uv run python -m benchmark.citation_v1.run
+```
+
+The default **fake** path runs deterministic invalid-citation detection. Semantic cases with programmed labels are **not** quality. Live metrics are **not invented** if `--live` is omitted (`summary.md` states they were not measured).
+
+```bash
+uv run python -m benchmark.citation_v1.run --live   # requires OPENAI_API_KEY
+```
+
+A/B/C protocol (describe-only unless you run it live): **A** no verification, **B** deterministic reference validation only, **C** full `semantic_verify`. Compare false-support rate and macro F1 on the test split. This repository does not claim those live A/B/C numbers were measured.
+
 ## Limitations
 
 - Tiny sample corpus; metrics are diagnostic, not a production claim.
@@ -314,4 +371,7 @@ The runner ingests the small files listed in `benchmark/v1/queries.json` (`corpu
 - CPU rerank adds latency; GPU is optional via `RERANKER_DEVICE`.
 - Cross-encoder scores are uncalibrated.
 - BM25 and dense scores are not comparable, which is why fusion is rank-based (RRF).
-- Citation checks are ID/quote reference validation only. Semantic citation verification is not implemented.
+- Citation verification is fallible. ID/quote existence is not semantic support.
+- `model_score` is uncalibrated.
+- No multi-tenant ACL in this repo.
+- No separate document versions; `document_id` is used as version identity.

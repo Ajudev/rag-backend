@@ -8,7 +8,7 @@ import pytest
 from openai import APITimeoutError, RateLimitError
 
 from app.core.exceptions import GenerationError, GenerationRateLimitError, GenerationTimeoutError
-from app.schemas import AnswerClaim, CitationRef, GroundedLlmOutput
+from app.schemas import AnswerClaim, CitationRef, GroundedLlmOutput, SemanticClaimJudgement
 from app.services.generation import OpenAIGenerationClient
 
 pytestmark = pytest.mark.unit
@@ -63,6 +63,27 @@ async def test_openai_client_parses_structured_output_and_usage() -> None:
     assert "temperature" not in kwargs
     assert kwargs["model"] == "gpt-4o-mini"
     assert kwargs["response_format"] is GroundedLlmOutput
+
+
+@pytest.mark.asyncio
+async def test_openai_client_validates_passed_schema_not_grounded_only() -> None:
+    judgement = SemanticClaimJudgement(status="SUPPORTED", citations=[], notes="ok")
+    parse = AsyncMock(return_value=_mock_completion(judgement))  # type: ignore[arg-type]
+    client = _client_with_parse(parse)
+    result = await client.generate([{"role": "user", "content": "q"}], SemanticClaimJudgement)
+    assert isinstance(result.output, SemanticClaimJudgement)
+    assert result.output.status == "SUPPORTED"
+
+
+@pytest.mark.asyncio
+async def test_fake_client_validates_queued_payload_as_schema() -> None:
+    from app.services.generation import FakeGenerationClient
+
+    fake = FakeGenerationClient()
+    fake.enqueue(SemanticClaimJudgement(status="CONTRADICTED", notes="year mismatch"))
+    result = await fake.generate([{"role": "user", "content": "q"}], SemanticClaimJudgement)
+    assert isinstance(result.output, SemanticClaimJudgement)
+    assert result.output.status == "CONTRADICTED"
 
 
 @pytest.mark.asyncio

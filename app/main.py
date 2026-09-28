@@ -10,7 +10,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from qdrant_client import QdrantClient
 
-from app.api.routes import answer_router, documents_router, health_router, search_router
+from app.api.routes import answer_router, documents_router, health_router, search_router, verify_router
 from app.core.config import Settings, get_settings
 from app.core.exceptions import AppError
 from app.services.bm25_index import BM25Index
@@ -63,7 +63,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             logger.info("Configuring OpenAI generation client model=%s", settings.openai_model)
             app.state.generation_client = OpenAIGenerationClient(
                 api_key=settings.openai_api_key,
-                model=settings.openai_model,
+                model=settings.openai_model or "gpt-4o-mini",
                 timeout_seconds=settings.openai_timeout_seconds,
                 max_retries=settings.openai_max_retries,
             )
@@ -73,6 +73,28 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     elif not hasattr(app.state, "owns_generation_client"):
         app.state.owns_generation_client = False
 
+    if getattr(app.state, "verify_generation_client", None) is None:
+        app.state.owns_verify_generation_client = False
+        verify_model = settings.citation_verify_model or settings.openai_model
+        generation = getattr(app.state, "generation_client", None)
+        if (
+            settings.openai_api_key
+            and settings.citation_verify_model
+            and settings.citation_verify_model != (settings.openai_model or "")
+        ):
+            logger.info("Configuring OpenAI citation-verify client model=%s", verify_model)
+            app.state.verify_generation_client = OpenAIGenerationClient(
+                api_key=settings.openai_api_key,
+                model=verify_model or "gpt-4o-mini",
+                timeout_seconds=settings.openai_timeout_seconds,
+                max_retries=settings.openai_max_retries,
+            )
+            app.state.owns_verify_generation_client = True
+        else:
+            app.state.verify_generation_client = generation
+    elif not hasattr(app.state, "owns_verify_generation_client"):
+        app.state.owns_verify_generation_client = False
+
     yield
     if app.state.owns_qdrant_client:
         app.state.qdrant_client.close()
@@ -81,6 +103,11 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         close = getattr(client, "aclose", None)
         if close is not None:
             await close()
+    if getattr(app.state, "owns_verify_generation_client", False):
+        verify_client = getattr(app.state, "verify_generation_client", None)
+        close_verify = getattr(verify_client, "aclose", None)
+        if close_verify is not None:
+            await close_verify()
 
 
 def create_app(
@@ -106,11 +133,10 @@ def create_app(
     app = FastAPI(
         title="Hybrid Search RAG",
         description=(
-            "Document ingestion, hybrid search, and grounded answer generation "
-            "with deterministic citation reference validation. "
-            "Semantic citation verification is not implemented."
+            "Document ingestion, hybrid search, grounded answers, and citation "
+            "verification. LLM verification is fallible; chunk IDs are not semantic support."
         ),
-        version="0.4.0",
+        version="0.5.0",
         lifespan=_lifespan,
     )
     app.state.settings = resolved
@@ -123,11 +149,15 @@ def create_app(
     if generation_client is not None:
         app.state.generation_client = generation_client
         app.state.owns_generation_client = False
+        if getattr(app.state, "verify_generation_client", None) is None:
+            app.state.verify_generation_client = generation_client
+            app.state.owns_verify_generation_client = False
 
     app.include_router(health_router)
     app.include_router(documents_router)
     app.include_router(search_router)
     app.include_router(answer_router)
+    app.include_router(verify_router)
 
     @app.exception_handler(AppError)
     async def handle_app_error(_request: Request, exc: AppError) -> JSONResponse:

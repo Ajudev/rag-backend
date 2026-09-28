@@ -32,6 +32,14 @@ class BM25Index:
         with self._lock:
             return {str(record.get("source", "")) for record in self._records if record.get("source")}
 
+    def get_by_chunk_id(self, chunk_id: str) -> dict[str, Any] | None:
+        """Return a copy of the indexed record for ``chunk_id``, or None."""
+        with self._lock:
+            for record in self._records:
+                if record.get("chunk_id") == chunk_id:
+                    return dict(record)
+        return None
+
     def load(self) -> None:
         """Load persisted records from disk if the file exists."""
         if not self.persist_path.exists():

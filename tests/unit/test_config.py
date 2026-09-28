@@ -122,3 +122,37 @@ def test_relative_bm25_path_resolves_against_project_root(
     assert settings.bm25_index_path == expected
     assert settings.bm25_index_path.is_absolute()
     assert tmp_path.resolve() not in settings.bm25_index_path.parents
+
+
+def test_citation_verify_enabled_defaults_true(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _clear_required_env(monkeypatch)
+    settings = Settings(
+        _env_file=None,
+        qdrant_url="http://localhost:6333",
+        qdrant_collection="rag_chunks",
+        embedding_model="fake",
+        reranker_model="fake-reranker",
+    )
+    assert settings.citation_verify_enabled is True
+    assert settings.verify_prompt_version == "verify_v1"
+
+
+def test_citation_verify_model_loads_from_kwargs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _clear_required_env(monkeypatch)
+    settings = Settings(
+        _env_file=None,
+        qdrant_url="http://localhost:6333",
+        qdrant_collection="rag_chunks",
+        embedding_model="fake",
+        reranker_model="fake-reranker",
+        citation_verify_model="gpt-verify-test",
+    )
+    assert settings.citation_verify_model == "gpt-verify-test"

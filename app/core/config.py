@@ -49,7 +49,7 @@ class Settings(BaseSettings):
     reranker_device: str = Field(default="cpu", alias="RERANKER_DEVICE")
     reranker_batch_size: int = Field(default=16, ge=1, alias="RERANKER_BATCH_SIZE")
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
-    openai_model: str = Field(default=None, min_length=1, alias="OPENAI_MODEL")
+    openai_model: str | None = Field(default=None, alias="OPENAI_MODEL")
     openai_timeout_seconds: float = Field(default=30.0, gt=0, alias="OPENAI_TIMEOUT_SECONDS")
     openai_max_retries: int = Field(default=2, ge=0, alias="OPENAI_MAX_RETRIES")
     openai_input_usd_per_million: float | None = Field(default=None, ge=0, alias="OPENAI_INPUT_USD_PER_MILLION")
@@ -57,6 +57,9 @@ class Settings(BaseSettings):
     answer_top_k: int = Field(default=5, ge=1, le=100, alias="ANSWER_TOP_K")
     answer_context_max_chars: int = Field(default=12000, ge=1, alias="ANSWER_CONTEXT_MAX_CHARS")
     answer_log_prompts: bool = Field(default=False, alias="ANSWER_LOG_PROMPTS")
+    citation_verify_enabled: bool = Field(default=True, alias="CITATION_VERIFY_ENABLED")
+    citation_verify_model: str | None = Field(default=None, alias="CITATION_VERIFY_MODEL")
+    verify_prompt_version: str = Field(default="verify_v1", alias="VERIFY_PROMPT_VERSION")
 
     @field_validator(*_REQUIRED_STRING_FIELDS, mode="before")
     @classmethod
@@ -77,10 +80,10 @@ class Settings(BaseSettings):
             return value
         return (PROJECT_ROOT / value).resolve()
 
-    @field_validator("openai_api_key", mode="before")
+    @field_validator("openai_api_key", "openai_model", "citation_verify_model", mode="before")
     @classmethod
-    def empty_openai_key_is_none(cls, value: object) -> object:
-        """Treat blank API keys as unset so boot does not require OpenAI."""
+    def empty_optional_string_is_none(cls, value: object) -> object:
+        """Treat blank optional strings as unset."""
         if isinstance(value, str) and not value.strip():
             return None
         return value

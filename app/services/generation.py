@@ -1,7 +1,7 @@
-"""LLM generation clients for grounded answers.
+"""LLM generation clients for grounded answers and structured verification.
 
-Uses the official OpenAI SDK only (no LangChain/LangGraph). Semantic citation
-verification is not implemented; this layer only returns structured claims.
+Uses the official OpenAI SDK only (no LangChain/LangGraph). Callers pass the
+Pydantic ``schema`` to parse; this module does not assume GroundedLlmOutput.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from app.core.exceptions import GenerationError, GenerationRateLimitError, GenerationTimeoutError
 from app.schemas import GroundedLlmOutput
@@ -35,6 +35,9 @@ Write atomic short claims. Every factual claim must include at least one citatio
 INSUFFICIENT_EVIDENCE_ANSWER = (
     "The retrieved passages do not contain enough evidence to answer this question."
 )
+CONFLICTING_EVIDENCE_ANSWER = (
+    "The cited passages conflict with the claim. Contradicted statements are not presented as verified."
+)
 CITATION_INVALID_ANSWER = (
     "Citation reference validation failed. The generated answer is not presented as grounded."
 )
@@ -44,7 +47,7 @@ CITATION_INVALID_ANSWER = (
 class GenerationResult:
     """Parsed structured output plus usage from one generation call."""
 
-    output: GroundedLlmOutput
+    output: BaseModel
     prompt_tokens: int
     completion_tokens: int
     total_tokens: int
@@ -122,8 +125,7 @@ class OpenAIGenerationClient:
             parsed = getattr(completion.choices[0].message, "parsed", None)
         if parsed is None:
             raise GenerationError("LLM returned no parseable structured output.")
-        if not isinstance(parsed, GroundedLlmOutput):
-            parsed = GroundedLlmOutput.model_validate(parsed)
+        parsed = _coerce_schema(parsed, schema)
 
         usage = getattr(completion, "usage", None)
         prompt_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
@@ -146,7 +148,7 @@ class FakeGenerationClient:
 
     def __init__(
         self,
-        payload: GroundedLlmOutput | None = None,
+        payload: BaseModel | None = None,
         *,
         error: BaseException | None = None,
         model: str = "fake-llm",
@@ -154,12 +156,13 @@ class FakeGenerationClient:
         self.model = model
         self.call_count = 0
         self.messages_history: list[list[dict[str, str]]] = []
-        self._queue: list[GroundedLlmOutput | BaseException] = []
+        self.schema_history: list[type[BaseModel]] = []
+        self._queue: list[BaseModel | BaseException] = []
         if payload is not None:
             self._queue.append(payload)
         self._default_error = error
 
-    def enqueue(self, item: GroundedLlmOutput | BaseException) -> None:
+    def enqueue(self, item: BaseModel | BaseException) -> None:
         """Queue the next generate() result or exception."""
         self._queue.append(item)
 
@@ -172,19 +175,21 @@ class FakeGenerationClient:
         messages: Sequence[dict[str, str]],
         schema: type[BaseModel],
     ) -> GenerationResult:
-        """Return a canned GroundedLlmOutput or raise a programmed error."""
-        del schema
+        """Return a canned payload validated as ``schema``, or raise."""
         self.call_count += 1
         self.messages_history.append([dict(item) for item in messages])
+        self.schema_history.append(schema)
         if self._queue:
             item = self._queue.pop(0)
             if isinstance(item, BaseException):
                 raise item
-            output = item
+            output = _coerce_schema(item, schema)
         elif self._default_error is not None:
             raise self._default_error
-        else:
+        elif schema is GroundedLlmOutput:
             output = GroundedLlmOutput(claims=[], status="insufficient_evidence")
+        else:
+            raise GenerationError("LLM returned no parseable structured output.")
         return GenerationResult(
             output=output,
             prompt_tokens=1,
@@ -192,3 +197,15 @@ class FakeGenerationClient:
             total_tokens=2,
             model=self.model,
         )
+
+
+def _coerce_schema(parsed: object, schema: type[BaseModel]) -> BaseModel:
+    """Validate structured output as the caller-supplied schema."""
+    if isinstance(parsed, schema):
+        return parsed
+    try:
+        if isinstance(parsed, BaseModel):
+            return schema.model_validate(parsed.model_dump())
+        return schema.model_validate(parsed)
+    except (ValidationError, TypeError, ValueError) as exc:
+        raise GenerationError("LLM returned no parseable structured output.") from exc

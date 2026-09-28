@@ -81,3 +81,15 @@ class GenerationRateLimitError(AppError):
     """LLM provider rate-limited the request after retries."""
 
     status_code = 503
+
+
+class InvalidVerifyRequestError(AppError):
+    """Independent verification request failed domain validation."""
+
+    status_code = 422
+
+
+class ChunkNotFoundError(AppError):
+    """A cited or allowed chunk_id is not present in the index."""
+
+    status_code = 404

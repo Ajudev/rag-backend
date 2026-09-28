@@ -87,6 +87,7 @@ def settings(tmp_path: Path) -> Settings:
         bm25_index_path=tmp_path / "bm25.json",
         upsert_batch_size=8,
         reranker_model="fake-reranker",
+        citation_verify_enabled=False,
     )
 
 

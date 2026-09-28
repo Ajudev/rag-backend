@@ -44,6 +44,14 @@ def get_generation_client(request: Request) -> GenerationClient | None:
     return getattr(request.app.state, "generation_client", None)
 
 
+def get_verify_generation_client(request: Request) -> GenerationClient | None:
+    """Return the citation-verification LLM client, falling back to generation."""
+    verify_client = getattr(request.app.state, "verify_generation_client", None)
+    if verify_client is not None:
+        return verify_client
+    return get_generation_client(request)
+
+
 def get_ingest_service(
     settings: Annotated[Settings, Depends(get_settings_dep)],
     qdrant: Annotated[QdrantStore, Depends(get_qdrant_store)],

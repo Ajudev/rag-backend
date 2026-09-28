@@ -107,3 +107,17 @@ def test_insufficient_evidence_with_no_claims_is_ok() -> None:
     result = validate_grounded_output(output, [_passage()])
     assert result.ok is True
     assert result.claims == []
+
+
+def test_locate_quote_offsets_when_found() -> None:
+    from app.services.citation_validate import locate_quote_offsets
+
+    passage = "The Zephyr handshake uses a nonce."
+    start, end = locate_quote_offsets("Zephyr handshake", passage)  # type: ignore[misc]
+    assert passage[start:end].lower().find("zephyr handshake") >= 0 or "zephyr" in passage[start:end].lower()
+
+
+def test_locate_quote_offsets_null_when_not_locatable() -> None:
+    from app.services.citation_validate import locate_quote_offsets
+
+    assert locate_quote_offsets("xyzzy-not-present", "The Zephyr handshake uses a nonce.") is None

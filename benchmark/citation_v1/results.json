@@ -1,0 +1,10 @@
+{
+  "generated_at": "2026-09-24T13:26:47.865090+00:00",
+  "fake": {
+    "n_cases": 20,
+    "n_invalid": 2,
+    "invalid_citation_detection_rate": 1.0,
+    "semantic_quality": "not measured (fake path)"
+  },
+  "live": null
+}

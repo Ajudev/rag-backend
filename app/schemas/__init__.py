@@ -150,6 +150,24 @@ AnswerStatus = Literal[
     "insufficient_evidence",
     "conflicting_evidence",
     "citation_invalid",
+    "verified",
+    "partially_verified",
+    "verification_failed",
+]
+SemanticClaimStatus = Literal[
+    "SUPPORTED",
+    "PARTIALLY_SUPPORTED",
+    "UNSUPPORTED",
+    "CONTRADICTED",
+    "UNCERTAIN",
+]
+CitationContribution = Literal["supports", "partial", "irrelevant", "contradicts"]
+VerifiedOverallStatus = Literal[
+    "verified",
+    "partially_verified",
+    "insufficient_evidence",
+    "conflicting_evidence",
+    "verification_failed",
 ]
 
 
@@ -171,6 +189,7 @@ class AnswerRequest(BaseModel):
     rrf_k: int | None = Field(default=None, ge=1)
     dense_weight: float | None = Field(default=None, ge=0)
     bm25_weight: float | None = Field(default=None, ge=0)
+    verify: bool | None = None
 
     @field_validator("question")
     @classmethod
@@ -269,6 +288,141 @@ class AnswerMetadata(BaseModel):
     estimated_cost_usd: float | None = None
     citation_validation: CitationValidationMeta
     dropped_chunk_ids: list[str] = Field(default_factory=list)
+    generation_status: LlmGroundedStatus | AnswerStatus | None = None
+    extra_retrieved_chunk_ids: list[str] = Field(default_factory=list)
+    verification_latency_ms: float | None = None
+
+
+class AtomicClaim(BaseModel):
+    """One atomic factual unit derived from a parent claim or displayed answer."""
+
+    atomic_claim_id: str = Field(min_length=1)
+    parent_claim_id: str | None = None
+    text: str = Field(min_length=1)
+    citations: list[CitationRef] = Field(default_factory=list)
+    from_displayed_answer: bool = False
+
+
+class EvidenceSpan(BaseModel):
+    """Quote span inside a stored passage. Offsets are null when not locatable."""
+
+    chunk_id: str
+    document_id: str
+    document_version: str
+    quote: str
+    char_start: int | None = None
+    char_end: int | None = None
+    relationship: str = ""
+
+
+class CitationVerificationResult(BaseModel):
+    """Deterministic reference check plus optional semantic contribution."""
+
+    chunk_id: str
+    document_id: str
+    document_version: str
+    reference_ok: bool
+    reference_errors: list[str] = Field(default_factory=list)
+    contribution: CitationContribution | None = None
+    model_score: float | None = Field(
+        default=None,
+        description="Uncalibrated model score; not a probability.",
+    )
+
+
+class ClaimVerificationResult(BaseModel):
+    """Semantic verdict for one atomic claim against cited indexed passages."""
+
+    atomic_claim_id: str
+    parent_claim_id: str | None = None
+    text: str
+    semantic_status: SemanticClaimStatus | Literal["not_run"]
+    citations: list[CitationVerificationResult] = Field(default_factory=list)
+    evidence_spans: list[EvidenceSpan] = Field(default_factory=list)
+    model_score: float | None = Field(
+        default=None,
+        description="Uncalibrated model score; not a probability.",
+    )
+    notes: str | None = None
+
+
+class RevisionAttempt(BaseModel):
+    """Audit trail for the single allowed correction cycle."""
+
+    original_answer: str
+    failed_atomic_claim_ids: list[str] = Field(default_factory=list)
+    extra_retrieved_chunk_ids: list[str] = Field(default_factory=list)
+    revised_claims: list[AnswerClaim] = Field(default_factory=list)
+    final_verdicts: list[ClaimVerificationResult] = Field(default_factory=list)
+
+
+class VerificationReport(BaseModel):
+    """Citation verification report. LLM verdicts are fallible."""
+
+    prompt_version: str
+    overall_status: VerifiedOverallStatus
+    atomic_claims: list[AtomicClaim] = Field(default_factory=list)
+    claim_results: list[ClaimVerificationResult] = Field(default_factory=list)
+    revision: RevisionAttempt | None = None
+    verifier_model: str
+    verification_latency_ms: float = 0.0
+    token_usage: TokenUsage = Field(default_factory=TokenUsage)
+    failed_atomic_claim_ids: list[str] = Field(default_factory=list)
+    extra_retrieved_chunk_ids: list[str] = Field(default_factory=list)
+
+
+class SemanticCitationJudgement(BaseModel):
+    """Structured per-citation contribution from the verifier LLM."""
+
+    chunk_id: str
+    contribution: CitationContribution
+    evidence_quote: str | None = None
+    relationship: str = ""
+    model_score: float | None = None
+
+
+class SemanticClaimJudgement(BaseModel):
+    """Structured verifier output for one atomic claim."""
+
+    status: SemanticClaimStatus
+    citations: list[SemanticCitationJudgement] = Field(default_factory=list)
+    notes: str = ""
+    model_score: float | None = None
+
+
+class AtomicClaimDecomposeItem(BaseModel):
+    """One atomic fact attributed to a parent claim. Do not invent facts."""
+
+    text: str = Field(min_length=1)
+    parent_claim_id: str
+
+
+class AtomicClaimDecomposeOutput(BaseModel):
+    """Structured decomposition used only when rule-based split is insufficient."""
+
+    claims: list[AtomicClaimDecomposeItem] = Field(default_factory=list)
+
+
+class VerifyRequest(BaseModel):
+    """Independent verification against indexed chunks, not client passage text."""
+
+    question: str | None = None
+    answer: str = Field(min_length=1)
+    claims: list[AnswerClaim]
+    allowed_chunk_ids: list[str] = Field(default_factory=list)
+
+    @field_validator("answer")
+    @classmethod
+    def strip_answer(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("answer must not be empty")
+        return stripped
+
+    @field_validator("allowed_chunk_ids")
+    @classmethod
+    def strip_allowed_ids(cls, value: list[str]) -> list[str]:
+        return [item.strip() for item in value if item.strip()]
 
 
 class AnswerResponse(BaseModel):
@@ -278,4 +432,16 @@ class AnswerResponse(BaseModel):
     status: AnswerStatus
     claims: list[AnswerClaim] = Field(default_factory=list)
     sources: list[AnswerSource] = Field(default_factory=list)
+    metadata: AnswerMetadata
+    verification: VerificationReport | None = None
+
+
+class VerifyResponse(BaseModel):
+    """Independent citation verification of provided claims."""
+
+    answer: str
+    status: AnswerStatus
+    claims: list[AnswerClaim] = Field(default_factory=list)
+    sources: list[AnswerSource] = Field(default_factory=list)
+    verification: VerificationReport
     metadata: AnswerMetadata
